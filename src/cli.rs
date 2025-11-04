@@ -71,6 +71,22 @@ impl clap::builder::TypedValueParser for WorktreeBranchParser {
     }
 }
 
+// --- Shared Argument Structs ---
+#[derive(clap::Args, Debug)]
+struct RemoveArgs {
+    /// Name of the branch to remove (defaults to current branch)
+    #[arg(value_parser = WorktreeBranchParser::new())]
+    branch_name: Option<String>,
+
+    /// Skip confirmation and ignore uncommitted changes
+    #[arg(short, long)]
+    force: bool,
+
+    /// Also delete the remote branch
+    #[arg(short = 'r', long)]
+    delete_remote: bool,
+}
+
 // --- CLI Definitions ---
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -105,24 +121,18 @@ enum Commands {
     },
 
     /// Remove a worktree, tmux window, and branch without merging
-    #[command(alias = "rm")]
-    Remove {
-        /// Name of the branch to remove (defaults to current branch)
-        #[arg(value_parser = WorktreeBranchParser::new())]
-        branch_name: Option<String>,
+    Remove(RemoveArgs),
 
-        /// Skip confirmation and ignore uncommitted changes
-        #[arg(short, long)]
-        force: bool,
-
-        /// Also delete the remote branch
-        #[arg(short = 'r', long)]
-        delete_remote: bool,
-    },
+    /// Remove a worktree, tmux window, and branch without merging
+    #[command(hide = true)]
+    Rm(RemoveArgs),
 
     /// List all worktrees
-    #[command(alias = "ls")]
     List,
+
+    /// List all worktrees
+    #[command(hide = true)]
+    Ls,
 
     /// Generate example .workmux.yaml configuration file
     Init,
@@ -146,17 +156,15 @@ pub fn run() -> Result<()> {
             ignore_uncommitted,
             delete_remote,
         } => merge_worktree(branch_name.as_deref(), ignore_uncommitted, delete_remote),
-        Commands::Remove {
-            branch_name,
-            force,
-            delete_remote,
-        } => remove_worktree(branch_name.as_deref(), force, delete_remote),
-        Commands::List => list_worktrees(),
+        Commands::Remove(args) | Commands::Rm(args) => {
+            remove_worktree(args.branch_name.as_deref(), args.force, args.delete_remote)
+        }
+        Commands::List | Commands::Ls => list_worktrees(),
         Commands::Init => config::Config::init(),
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             let name = cmd.get_name().to_string();
-            generate(shell, &mut cmd, name, &mut std::io::stdout());
+            generate(shell, &mut cmd, name, &mut io::stdout());
             Ok(())
         }
     }
