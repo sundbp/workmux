@@ -28,6 +28,10 @@ pub struct Config {
     #[serde(default)]
     pub worktree_dir: Option<String>,
 
+    /// Prefix for tmux window names (optional, defaults to "wm-")
+    #[serde(default)]
+    pub window_prefix: Option<String>,
+
     /// Tmux pane configuration
     #[serde(default)]
     pub panes: Vec<PaneConfig>,
@@ -102,6 +106,7 @@ impl Config {
         Config {
             main_branch: None,
             worktree_dir: None,
+            window_prefix: None,
             panes: vec![
                 PaneConfig {
                     command: shell.clone(),
@@ -125,6 +130,7 @@ impl Config {
         Config {
             main_branch: None,
             worktree_dir: None,
+            window_prefix: None,
             panes: vec![
                 PaneConfig {
                     command: "claude".to_string(),
@@ -140,6 +146,11 @@ impl Config {
             post_create: vec![],
             files: FileConfig::default(),
         }
+    }
+
+    /// Get the window prefix to use, defaulting to "wm-" if not configured
+    pub fn window_prefix(&self) -> &str {
+        self.window_prefix.as_deref().unwrap_or("wm-")
     }
 
     /// Create an example .workmux.yaml configuration file
@@ -165,6 +176,10 @@ impl Config {
 # Default: <project_root>/../<project_name>__worktrees
 # worktree_dir: .worktrees
 # worktree_dir: /path/to/custom/location
+
+# Optional: customize the tmux window name prefix
+# Default: wm-
+# window_prefix: wm-
 
 # Setup commands to run after worktree and file operations are complete.
 # These run as regular processes in your terminal (not in tmux panes).

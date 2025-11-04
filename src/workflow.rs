@@ -45,7 +45,8 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
         ));
     }
 
-    if tmux::window_exists(branch_name)? {
+    let prefix = config.window_prefix();
+    if tmux::window_exists(prefix, branch_name)? {
         return Err(anyhow!(
             "A tmux window named '{}' already exists",
             branch_name
@@ -92,7 +93,8 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
         .context("Failed to create git worktree")?;
 
     // Create tmux window
-    tmux::create_window(branch_name, &worktree_path).context("Failed to create tmux window")?;
+    tmux::create_window(prefix, branch_name, &worktree_path)
+        .context("Failed to create tmux window")?;
 
     // Perform file operations (copy and symlink)
     handle_file_operations(&repo_root, &worktree_path, &config.files)
@@ -110,14 +112,14 @@ pub fn create(branch_name: &str, config: &config::Config) -> Result<CreateResult
     }
 
     // Setup panes
-    let pane_setup_result = tmux::setup_panes(branch_name, &config.panes, &worktree_path)
+    let pane_setup_result = tmux::setup_panes(prefix, branch_name, &config.panes, &worktree_path)
         .context("Failed to setup panes")?;
 
     // Focus the configured pane
-    tmux::select_pane(branch_name, pane_setup_result.focus_pane_index)?;
+    tmux::select_pane(prefix, branch_name, pane_setup_result.focus_pane_index)?;
 
     // Switch to the new window
-    tmux::select_window(branch_name)?;
+    tmux::select_window(prefix, branch_name)?;
 
     Ok(CreateResult {
         worktree_path,
@@ -286,7 +288,8 @@ pub fn merge(
         .context("Failed to merge branch")?;
 
     // Always force cleanup after a successful merge
-    cleanup(&branch_to_merge, true, delete_remote)?;
+    let prefix = config.window_prefix();
+    cleanup(prefix, &branch_to_merge, true, delete_remote)?;
 
     Ok(MergeResult {
         branch_merged: branch_to_merge,
@@ -296,7 +299,12 @@ pub fn merge(
 }
 
 /// Remove a worktree without merging
-pub fn remove(branch_name: &str, force: bool, delete_remote: bool) -> Result<RemoveResult> {
+pub fn remove(
+    branch_name: &str,
+    force: bool,
+    delete_remote: bool,
+    config: &config::Config,
+) -> Result<RemoveResult> {
     if !git::is_git_repo()? {
         return Err(anyhow!("Not in a git repository"));
     }
@@ -320,7 +328,8 @@ pub fn remove(branch_name: &str, force: bool, delete_remote: bool) -> Result<Rem
 
     // Note: Unmerged branch check removed - git branch -d/D handles this natively
     // The CLI provides a user-friendly confirmation prompt before calling this function
-    cleanup(branch_name, force, delete_remote)?;
+    let prefix = config.window_prefix();
+    cleanup(prefix, branch_name, force, delete_remote)?;
 
     Ok(RemoveResult {
         branch_removed: branch_name.to_string(),
@@ -328,7 +337,12 @@ pub fn remove(branch_name: &str, force: bool, delete_remote: bool) -> Result<Rem
 }
 
 /// Centralized function to clean up tmux and git resources
-pub fn cleanup(branch_name: &str, force: bool, delete_remote: bool) -> Result<CleanupResult> {
+pub fn cleanup(
+    prefix: &str,
+    branch_name: &str,
+    force: bool,
+    delete_remote: bool,
+) -> Result<CleanupResult> {
     let mut result = CleanupResult {
         tmux_window_killed: false,
         worktree_removed: false,
@@ -338,9 +352,9 @@ pub fn cleanup(branch_name: &str, force: bool, delete_remote: bool) -> Result<Cl
     };
 
     // Kill tmux window if it exists
-    match (tmux::is_running(), tmux::window_exists(branch_name)) {
+    match (tmux::is_running(), tmux::window_exists(prefix, branch_name)) {
         (Ok(true), Ok(true)) => {
-            tmux::kill_window(branch_name).context("Failed to kill tmux window")?;
+            tmux::kill_window(prefix, branch_name).context("Failed to kill tmux window")?;
             result.tmux_window_killed = true;
         }
         (Err(_), _) | (_, Err(_)) => {
@@ -381,7 +395,7 @@ pub struct WorktreeInfo {
     pub has_unmerged: bool,
 }
 
-pub fn list() -> Result<Vec<WorktreeInfo>> {
+pub fn list(config: &config::Config) -> Result<Vec<WorktreeInfo>> {
     if !git::is_git_repo()? {
         return Err(anyhow!("Not in a git repository"));
     }
@@ -410,10 +424,11 @@ pub fn list() -> Result<Vec<WorktreeInfo>> {
         .and_then(|base| git::get_unmerged_branches(&base).ok())
         .unwrap_or_default(); // Use an empty set on failure
 
+    let prefix = config.window_prefix();
     let worktrees: Vec<WorktreeInfo> = worktrees_data
         .into_iter()
         .map(|(path, branch)| {
-            let prefixed_branch_name = tmux::prefixed(&branch);
+            let prefixed_branch_name = tmux::prefixed(prefix, &branch);
             let has_tmux = tmux_windows.contains(&prefixed_branch_name);
 
             // Check for unmerged commits, but only if this isn't the main branch

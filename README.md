@@ -82,6 +82,9 @@ create a `.workmux.yaml` file in your project root:
 # Defaults to a sibling directory named '<project_name>__worktrees'.
 # worktree_dir: ".worktrees"
 
+# Custom prefix for tmux window names. Defaults to "wm-".
+# window_prefix: "wm-"
+
 # Commands to run after the worktree is created but before tmux setup is finalized.
 # Useful for installing dependencies or running database migrations.
 post_create:
@@ -113,6 +116,7 @@ panes:
   checks for `main`/`master`)
 - **worktree_dir**: Custom directory for worktrees (absolute or relative to repo
   root)
+- **window_prefix**: Prefix for tmux window names (default: `wm-`)
 - **panes**: Array of pane configurations
   - **command**: Command to run in the pane
   - **focus**: Whether this pane should receive focus (default: false)

@@ -268,8 +268,9 @@ fn remove_worktree(branch_name: &str, mut force: bool, delete_remote: bool) -> R
         }
     }
 
-    let result =
-        workflow::remove(branch_name, force, delete_remote).context("Failed to remove worktree")?;
+    let config = config::Config::load()?;
+    let result = workflow::remove(branch_name, force, delete_remote, &config)
+        .context("Failed to remove worktree")?;
 
     println!(
         "✓ Successfully removed worktree and branch '{}'",
@@ -280,7 +281,8 @@ fn remove_worktree(branch_name: &str, mut force: bool, delete_remote: bool) -> R
 }
 
 fn list_worktrees() -> Result<()> {
-    let worktrees = workflow::list()?;
+    let config = config::Config::load()?;
+    let worktrees = workflow::list(&config)?;
 
     if worktrees.is_empty() {
         println!("No worktrees found");

@@ -5,11 +5,9 @@ use std::path::Path;
 use crate::cmd::Cmd;
 use crate::config::{PaneConfig, SplitDirection};
 
-const WINDOW_PREFIX: &str = "wm-";
-
 /// Helper function to add prefix to window name
-pub fn prefixed(window_name: &str) -> String {
-    format!("{}{}", WINDOW_PREFIX, window_name)
+pub fn prefixed(prefix: &str, window_name: &str) -> String {
+    format!("{}{}", prefix, window_name)
 }
 
 /// Get all tmux window names in a single call
@@ -29,8 +27,8 @@ pub fn is_running() -> Result<bool> {
 }
 
 /// Check if a tmux window with the given name exists
-pub fn window_exists(window_name: &str) -> Result<bool> {
-    let prefixed_name = prefixed(window_name);
+pub fn window_exists(prefix: &str, window_name: &str) -> Result<bool> {
+    let prefixed_name = prefixed(prefix, window_name);
     let windows = Cmd::new("tmux")
         .args(&["list-windows", "-F", "#{window_name}"])
         .run_and_capture_stdout();
@@ -42,8 +40,8 @@ pub fn window_exists(window_name: &str) -> Result<bool> {
 }
 
 /// Create a new tmux window with the given name and working directory
-pub fn create_window(window_name: &str, working_dir: &Path) -> Result<()> {
-    let prefixed_name = prefixed(window_name);
+pub fn create_window(prefix: &str, window_name: &str, working_dir: &Path) -> Result<()> {
+    let prefixed_name = prefixed(prefix, window_name);
     let working_dir_str = working_dir
         .to_str()
         .ok_or_else(|| anyhow!("Working directory path contains non-UTF8 characters"))?;
@@ -58,6 +56,7 @@ pub fn create_window(window_name: &str, working_dir: &Path) -> Result<()> {
 
 /// Split a pane in the given window
 pub fn split_pane(
+    prefix: &str,
     window_name: &str,
     pane_index: usize,
     direction: &SplitDirection,
@@ -68,7 +67,7 @@ pub fn split_pane(
         SplitDirection::Vertical => "-v",
     };
 
-    let prefixed_name = prefixed(window_name);
+    let prefixed_name = prefixed(prefix, window_name);
     let target = format!("={}.{}", prefixed_name, pane_index);
 
     let working_dir_str = working_dir
@@ -91,9 +90,9 @@ pub fn split_pane(
 }
 
 /// Send keys to a specific pane
-pub fn send_keys(window_name: &str, pane_index: usize, keys: &str) -> Result<()> {
+pub fn send_keys(prefix: &str, window_name: &str, pane_index: usize, keys: &str) -> Result<()> {
     // Target by window name using =window_name syntax
-    let prefixed_name = prefixed(window_name);
+    let prefixed_name = prefixed(prefix, window_name);
     let target = format!("={}.{}", prefixed_name, pane_index);
 
     Cmd::new("tmux")
@@ -105,8 +104,8 @@ pub fn send_keys(window_name: &str, pane_index: usize, keys: &str) -> Result<()>
 }
 
 /// Select a specific pane
-pub fn select_pane(window_name: &str, pane_index: usize) -> Result<()> {
-    let prefixed_name = prefixed(window_name);
+pub fn select_pane(prefix: &str, window_name: &str, pane_index: usize) -> Result<()> {
+    let prefixed_name = prefixed(prefix, window_name);
     let target = format!("={}.{}", prefixed_name, pane_index);
 
     Cmd::new("tmux")
@@ -118,8 +117,8 @@ pub fn select_pane(window_name: &str, pane_index: usize) -> Result<()> {
 }
 
 /// Select a specific window
-pub fn select_window(window_name: &str) -> Result<()> {
-    let prefixed_name = prefixed(window_name);
+pub fn select_window(prefix: &str, window_name: &str) -> Result<()> {
+    let prefixed_name = prefixed(prefix, window_name);
     let target = format!("={}", prefixed_name);
 
     Cmd::new("tmux")
@@ -131,8 +130,8 @@ pub fn select_window(window_name: &str) -> Result<()> {
 }
 
 /// Kill a tmux window
-pub fn kill_window(window_name: &str) -> Result<()> {
-    let prefixed_name = prefixed(window_name);
+pub fn kill_window(prefix: &str, window_name: &str) -> Result<()> {
+    let prefixed_name = prefixed(prefix, window_name);
     let target = format!("={}", prefixed_name);
 
     Cmd::new("tmux")
@@ -151,6 +150,7 @@ pub struct PaneSetupResult {
 
 /// Setup panes in a window according to configuration
 pub fn setup_panes(
+    prefix: &str,
     window_name: &str,
     panes: &[PaneConfig],
     working_dir: &Path,
@@ -163,7 +163,7 @@ pub fn setup_panes(
     }
 
     // The window is created with one pane (index 0). Handle the first config entry.
-    send_keys(window_name, 0, &panes[0].command)?;
+    send_keys(prefix, window_name, 0, &panes[0].command)?;
 
     // Track which pane should be focused (defaults to first pane)
     let mut focus_pane_index = if panes[0].focus { 0 } else { usize::MAX };
@@ -174,11 +174,17 @@ pub fn setup_panes(
         if let Some(ref direction) = pane_config.split {
             // Split from the previously created pane
             let target_pane_to_split = actual_pane_count - 1;
-            split_pane(window_name, target_pane_to_split, direction, working_dir)?;
+            split_pane(
+                prefix,
+                window_name,
+                target_pane_to_split,
+                direction,
+                working_dir,
+            )?;
 
             // The new pane's index is the current count
             let new_pane_index = actual_pane_count;
-            send_keys(window_name, new_pane_index, &pane_config.command)?;
+            send_keys(prefix, window_name, new_pane_index, &pane_config.command)?;
 
             if pane_config.focus {
                 focus_pane_index = new_pane_index;
