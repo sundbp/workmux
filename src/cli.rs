@@ -244,9 +244,17 @@ fn merge_worktree(
     ignore_uncommitted: bool,
     delete_remote: bool,
 ) -> Result<()> {
+    // Determine the branch to merge
+    let branch_to_merge = if let Some(name) = branch_name {
+        name.to_string()
+    } else {
+        // Running from within a worktree - get current branch
+        git::get_current_branch().context("Failed to get current branch")?
+    };
+
     let config = config::Config::load()?;
 
-    let result = workflow::merge(branch_name, ignore_uncommitted, delete_remote, &config)
+    let result = workflow::merge(&branch_to_merge, ignore_uncommitted, delete_remote, &config)
         .context("Failed to merge worktree")?;
 
     if result.had_staged_changes {

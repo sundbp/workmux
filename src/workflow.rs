@@ -302,6 +302,8 @@ pub fn merge(
     branch_name: Option<&str>,
     ignore_uncommitted: bool,
     delete_remote: bool,
+    rebase: bool,
+    squash: bool,
     config: &config::Config,
 ) -> Result<MergeResult> {
     // Pre-flight checks
@@ -335,8 +337,6 @@ pub fn merge(
         git::commit_with_editor(&worktree_path).context("Failed to commit staged changes")?;
     }
 
-    // --- Start of hardened merge logic ---
-
     // Get the main branch (from config or auto-detect)
     let main_branch = config
         .main_branch
@@ -363,11 +363,36 @@ pub fn merge(
     // Explicitly switch to the main branch to ensure correct merge target
     git::switch_branch_in_worktree(&main_worktree_path, &main_branch)?;
 
-    // Merge the branch into main (in the main worktree)
-    git::merge_in_worktree(&main_worktree_path, &branch_to_merge)
-        .context("Failed to merge branch")?;
+    if rebase {
+        // Rebase the feature branch on top of main inside its own worktree.
+        // This is where conflicts will be detected.
+        println!("Rebasing '{}' onto '{}'...", &branch_to_merge, &main_branch);
+        git::rebase_branch_onto_base(&worktree_path, &main_branch).with_context(|| {
+            format!(
+                "Rebase failed, likely due to conflicts.\n\n\
+                Please resolve them manually inside the worktree at '{}'.\n\
+                Then, run 'git rebase --continue' to proceed or 'git rebase --abort' to cancel.",
+                worktree_path.display()
+            )
+        })?;
 
-    // --- End of hardened merge logic ---
+        // After a successful rebase, merge into main. This will be a fast-forward.
+        git::merge_in_worktree(&main_worktree_path, &branch_to_merge)
+            .context("Failed to merge rebased branch. This should have been a fast-forward.")?;
+    } else if squash {
+        // Perform the squash merge. This stages all changes from the feature branch but does not commit.
+        git::merge_squash_in_worktree(&main_worktree_path, &branch_to_merge)
+            .context("Failed to perform squash merge")?;
+
+        // Prompt the user to provide a commit message for the squashed changes.
+        println!("Staged squashed changes. Please provide a commit message in your editor.");
+        git::commit_with_editor(&main_worktree_path)
+            .context("Failed to commit squashed changes. You may need to commit them manually.")?;
+    } else {
+        // Default merge commit workflow
+        git::merge_in_worktree(&main_worktree_path, &branch_to_merge)
+            .context("Failed to merge branch")?;
+    }
 
     // Always force cleanup after a successful merge
     let prefix = config.window_prefix();
