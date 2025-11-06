@@ -222,7 +222,7 @@ fn create_worktree(branch_name: &str) -> Result<()> {
     let config = config::Config::load()?;
 
     // Print setup status if there are post-create hooks
-    if !config.post_create.is_empty() {
+    if config.post_create.as_ref().is_some_and(|v| !v.is_empty()) {
         println!("Running setup commands...");
     }
 
@@ -245,7 +245,7 @@ fn create_worktree(branch_name: &str) -> Result<()> {
 fn open_worktree(branch_name: &str, run_hooks: bool, force_files: bool) -> Result<()> {
     let config = config::Config::load()?;
 
-    if run_hooks && !config.post_create.is_empty() {
+    if run_hooks && config.post_create.as_ref().is_some_and(|v| !v.is_empty()) {
         println!("Running setup commands...");
     }
 

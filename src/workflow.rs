@@ -192,17 +192,23 @@ fn setup_environment(
 
     // Run post-create hooks if enabled
     let mut hooks_run = 0;
-    if options.run_hooks && !config.post_create.is_empty() {
-        hooks_run = config.post_create.len();
-        for (idx, command) in config.post_create.iter().enumerate() {
-            println!("  [{}/{}] Running: {}", idx + 1, hooks_run, command);
-            cmd::shell_command(command, worktree_path)
-                .with_context(|| format!("Failed to run post-create command: '{}'", command))?;
+    if options.run_hooks {
+        if let Some(post_create) = &config.post_create {
+            if !post_create.is_empty() {
+                hooks_run = post_create.len();
+                for (idx, command) in post_create.iter().enumerate() {
+                    println!("  [{}/{}] Running: {}", idx + 1, hooks_run, command);
+                    cmd::shell_command(command, worktree_path).with_context(|| {
+                        format!("Failed to run post-create command: '{}'", command)
+                    })?;
+                }
+            }
         }
     }
 
     // Setup panes
-    let pane_setup_result = tmux::setup_panes(prefix, branch_name, &config.panes, worktree_path)
+    let panes = config.panes.as_deref().unwrap_or(&[]);
+    let pane_setup_result = tmux::setup_panes(prefix, branch_name, panes, worktree_path)
         .context("Failed to setup panes")?;
 
     // Focus the configured pane
@@ -225,91 +231,96 @@ fn handle_file_operations(
     file_config: &config::FileConfig,
 ) -> Result<()> {
     // Handle copies
-    for pattern in &file_config.copy {
-        let full_pattern = repo_root.join(pattern).to_string_lossy().to_string();
-        for entry in glob::glob(&full_pattern)? {
-            let source_path = entry?;
-            if source_path.is_dir() {
-                return Err(anyhow!(
-                    "Cannot copy directory '{}'. Only files are supported for copy operations. \
-                    Consider using symlink instead, or specify individual files.",
-                    source_path.display()
-                ));
-            }
-            let relative_path = source_path.strip_prefix(repo_root)?;
-            let dest_path = worktree_path.join(relative_path);
+    if let Some(copy_patterns) = &file_config.copy {
+        for pattern in copy_patterns {
+            let full_pattern = repo_root.join(pattern).to_string_lossy().to_string();
+            for entry in glob::glob(&full_pattern)? {
+                let source_path = entry?;
+                if source_path.is_dir() {
+                    return Err(anyhow!(
+                        "Cannot copy directory '{}'. Only files are supported for copy operations. \
+                        Consider using symlink instead, or specify individual files.",
+                        source_path.display()
+                    ));
+                }
+                let relative_path = source_path.strip_prefix(repo_root)?;
+                let dest_path = worktree_path.join(relative_path);
 
-            if let Some(parent) = dest_path.parent() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("Failed to create parent directory for {:?}", dest_path)
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("Failed to create parent directory for {:?}", dest_path)
+                    })?;
+                }
+                fs::copy(&source_path, &dest_path).with_context(|| {
+                    format!("Failed to copy {:?} to {:?}", source_path, dest_path)
                 })?;
             }
-            fs::copy(&source_path, &dest_path)
-                .with_context(|| format!("Failed to copy {:?} to {:?}", source_path, dest_path))?;
         }
     }
 
     // Handle symlinks
-    for pattern in &file_config.symlink {
-        let full_pattern = repo_root.join(pattern).to_string_lossy().to_string();
-        for entry in glob::glob(&full_pattern)? {
-            let source_path = entry?;
-            let relative_path = source_path.strip_prefix(repo_root)?;
-            let dest_path = worktree_path.join(relative_path);
+    if let Some(symlink_patterns) = &file_config.symlink {
+        for pattern in symlink_patterns {
+            let full_pattern = repo_root.join(pattern).to_string_lossy().to_string();
+            for entry in glob::glob(&full_pattern)? {
+                let source_path = entry?;
+                let relative_path = source_path.strip_prefix(repo_root)?;
+                let dest_path = worktree_path.join(relative_path);
 
-            if let Some(parent) = dest_path.parent() {
-                fs::create_dir_all(parent).with_context(|| {
-                    format!("Failed to create parent directory for {:?}", dest_path)
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).with_context(|| {
+                        format!("Failed to create parent directory for {:?}", dest_path)
+                    })?;
+                }
+
+                // Critical: create a relative path for the symlink
+                let dest_parent = dest_path.parent().ok_or_else(|| {
+                    anyhow!(
+                        "Could not determine parent directory for destination path: {:?}",
+                        dest_path
+                    )
                 })?;
-            }
 
-            // Critical: create a relative path for the symlink
-            let dest_parent = dest_path.parent().ok_or_else(|| {
-                anyhow!(
-                    "Could not determine parent directory for destination path: {:?}",
-                    dest_path
-                )
-            })?;
+                let relative_source = pathdiff::diff_paths(&source_path, dest_parent)
+                    .ok_or_else(|| anyhow!("Could not create relative path for symlink"))?;
 
-            let relative_source = pathdiff::diff_paths(&source_path, dest_parent)
-                .ok_or_else(|| anyhow!("Could not create relative path for symlink"))?;
-
-            // Remove existing file/symlink at destination to avoid errors
-            // IMPORTANT: Use symlink_metadata to avoid following symlinks
-            if let Ok(metadata) = dest_path.symlink_metadata() {
-                if metadata.is_dir() {
-                    fs::remove_dir_all(&dest_path).with_context(|| {
-                        format!("Failed to remove existing directory at {:?}", &dest_path)
-                    })?;
-                } else {
-                    // Handles both files and symlinks
-                    fs::remove_file(&dest_path).with_context(|| {
-                        format!("Failed to remove existing file/symlink at {:?}", &dest_path)
-                    })?;
+                // Remove existing file/symlink at destination to avoid errors
+                // IMPORTANT: Use symlink_metadata to avoid following symlinks
+                if let Ok(metadata) = dest_path.symlink_metadata() {
+                    if metadata.is_dir() {
+                        fs::remove_dir_all(&dest_path).with_context(|| {
+                            format!("Failed to remove existing directory at {:?}", &dest_path)
+                        })?;
+                    } else {
+                        // Handles both files and symlinks
+                        fs::remove_file(&dest_path).with_context(|| {
+                            format!("Failed to remove existing file/symlink at {:?}", &dest_path)
+                        })?;
+                    }
                 }
-            }
 
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&relative_source, &dest_path).with_context(|| {
-                format!(
-                    "Failed to create symlink from {:?} to {:?}",
-                    relative_source, dest_path
-                )
-            })?;
-
-            #[cfg(windows)]
-            {
-                if source_path.is_dir() {
-                    std::os::windows::fs::symlink_dir(&relative_source, &dest_path)
-                } else {
-                    std::os::windows::fs::symlink_file(&relative_source, &dest_path)
-                }
-                .with_context(|| {
+                #[cfg(unix)]
+                std::os::unix::fs::symlink(&relative_source, &dest_path).with_context(|| {
                     format!(
                         "Failed to create symlink from {:?} to {:?}",
                         relative_source, dest_path
                     )
                 })?;
+
+                #[cfg(windows)]
+                {
+                    if source_path.is_dir() {
+                        std::os::windows::fs::symlink_dir(&relative_source, &dest_path)
+                    } else {
+                        std::os::windows::fs::symlink_file(&relative_source, &dest_path)
+                    }
+                    .with_context(|| {
+                        format!(
+                            "Failed to create symlink from {:?} to {:?}",
+                            relative_source, dest_path
+                        )
+                    })?;
+                }
             }
         }
     }

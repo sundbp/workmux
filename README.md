@@ -40,12 +40,11 @@ cargo install workmux
 1. **Initialize configuration (optional)**:
 
 ```bash
-workmux init
+workmux init  # Creates .workmux.yaml
 ```
 
-This creates a `.workmux.yaml` file to customize your workflow (pane layouts,
-setup commands, file operations, etc.). workmux works out of the box with
-sensible defaults, so this step is optional.
+Customize your workflow (panes, hooks, files). Works with defaults if skipped.
+For global settings, create `~/.config/workmux/config.yaml`.
 
 2. **Create a new worktree and tmux window**:
 
@@ -71,43 +70,46 @@ and local branch).
 
 ## Configuration
 
-workmux works out of the box with sensible defaults. To customize your workflow,
-create a `.workmux.yaml` file in your project root:
+workmux uses a two-level configuration system:
+
+- **Global** (`~/.config/workmux/config.yaml`): Personal defaults for all projects
+- **Project** (`.workmux.yaml`): Project-specific overrides
+
+Project settings override global settings. Use `"<global>"` in lists to inherit global values.
+
+### Global configuration example
+
+`~/.config/workmux/config.yaml`:
 
 ```yaml
-# The primary branch to merge into. If not set, workmux will attempt to auto-detect it.
-# main_branch: main
-
-# Custom directory for worktrees. Can be an absolute path or relative to the git repo root.
-# Defaults to a sibling directory named '<project_name>__worktrees'.
-# worktree_dir: ".worktrees"
-
-# Custom prefix for tmux window names. Defaults to "wm-".
-# window_prefix: "wm-"
-
-# Commands to run after the worktree is created but before tmux setup is finalized.
-# Useful for installing dependencies or running database migrations.
-post_create:
-  - pnpm install
-  - pnpm db:migrate
-
-# Files to copy from the repo root into the new worktree.
-# Supports glob patterns.
-files:
-  copy:
-    - '.env.example'
-  # Files/directories to symlink from the repo root into the new worktree.
-  # Useful for sharing build caches or other large dependencies.
-  symlink:
-    - '.next'
-    - 'tmp/cache'
-
-# Defines the tmux pane layout for new windows.
+window_prefix: wm-
 panes:
-  - command: claude # The first pane is created by default
-    focus: true # This pane will have focus
+  - command: nvim .
+    focus: true
+  - command: clear
+    split: horizontal
+post_create:
+  - mise install
+```
+
+### Project configuration example
+
+`.workmux.yaml`:
+
+```yaml
+post_create:
+  - '<global>'
+  - pnpm install
+
+files:
+  symlink:
+    - node_modules
+
+panes:
+  - command: claude
+    focus: true
   - command: pnpm run dev
-    split: horizontal # Splits the window horizontally, creating a new pane to the right
+    split: horizontal
 ```
 
 ### Configuration options
@@ -311,17 +313,14 @@ bug-fix     ✓       ●           ~/project__worktrees/bug-fix
 
 ### `workmux init`
 
-Generates an example `.workmux.yaml` configuration file in the current directory
-with sensible defaults and helpful comments.
+Generates `.workmux.yaml` with example configuration and `"<global>"` placeholder
+usage.
 
 **Examples:**
 
 ```bash
 workmux init
 ```
-
-This creates a `.workmux.yaml` file that you can customize to define your tmux
-layout, post-creation hooks, and file operations.
 
 ---
 

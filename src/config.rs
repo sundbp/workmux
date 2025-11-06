@@ -5,19 +5,19 @@ use std::path::Path;
 use crate::git;
 
 /// Configuration for file operations during worktree creation
-#[derive(Debug, Deserialize, Serialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct FileConfig {
     /// Glob patterns for files to copy from the repo root to the new worktree
     #[serde(default)]
-    pub copy: Vec<String>,
+    pub copy: Option<Vec<String>>,
 
     /// Glob patterns for files to symlink from the repo root into the new worktree
     #[serde(default)]
-    pub symlink: Vec<String>,
+    pub symlink: Option<Vec<String>>,
 }
 
 /// Configuration for the workmux tool, read from .workmux.yaml
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default, Clone)]
 pub struct Config {
     /// The primary branch to merge into (optional, auto-detected if not set)
     #[serde(default)]
@@ -34,11 +34,11 @@ pub struct Config {
 
     /// Tmux pane configuration
     #[serde(default)]
-    pub panes: Vec<PaneConfig>,
+    pub panes: Option<Vec<PaneConfig>>,
 
     /// Commands to run after creating the worktree
     #[serde(default)]
-    pub post_create: Vec<String>,
+    pub post_create: Option<Vec<String>>,
 
     /// File operations to perform after creating the worktree
     #[serde(default)]
@@ -46,7 +46,7 @@ pub struct Config {
 }
 
 /// Configuration for a single tmux pane
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct PaneConfig {
     /// Command to run in this pane
     pub command: String,
@@ -60,7 +60,7 @@ pub struct PaneConfig {
     pub split: Option<SplitDirection>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum SplitDirection {
     Horizontal,
@@ -68,83 +68,181 @@ pub enum SplitDirection {
 }
 
 impl Config {
-    /// Load configuration from .workmux.yaml or .workmux.yml in the current directory
+    /// Load and merge global and project configurations.
     pub fn load() -> anyhow::Result<Self> {
-        // Look for both .yaml and .yml
-        let config_path_yaml = Path::new(".workmux.yaml");
-        let config_path_yml = Path::new(".workmux.yml");
+        let global_config = Self::load_global()?.unwrap_or_default();
+        let project_config = Self::load_project()?.unwrap_or_default();
 
-        let config_path = if config_path_yaml.exists() {
-            Some(config_path_yaml)
-        } else if config_path_yml.exists() {
-            Some(config_path_yml)
-        } else {
-            None
-        };
+        let merged_config = global_config.merge(project_config);
 
-        if let Some(path) = config_path {
-            let contents = fs::read_to_string(path)?;
-            let config: Config = serde_yaml::from_str(&contents)?;
-            Ok(config)
-        } else {
-            // No config file found. Generate default, checking for Claude context.
+        // After merging, if no panes are defined, apply a sensible default.
+        if merged_config.panes.is_none() {
+            let mut final_config = merged_config;
             if let Ok(repo_root) = git::get_repo_root() {
                 if repo_root.join("CLAUDE.md").exists() {
-                    return Ok(Config::claude_default());
+                    final_config.panes = Some(Self::claude_default_panes());
+                } else {
+                    final_config.panes = Some(Self::default_panes());
                 }
+            } else {
+                final_config.panes = Some(Self::default_panes());
             }
-            // Fallback to standard default
-            Ok(Config::default())
+            Ok(final_config)
+        } else {
+            Ok(merged_config)
         }
     }
 
-    /// Get the default configuration
-    pub fn default() -> Self {
-        // Use the user's shell, or default to bash if $SHELL is not set
+    /// Load configuration from a specific path.
+    fn load_from_path(path: &Path) -> anyhow::Result<Option<Self>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let contents = fs::read_to_string(path)?;
+        let config: Config = serde_yaml::from_str(&contents)
+            .map_err(|e| anyhow::anyhow!("Failed to parse config at {}: {}", path.display(), e))?;
+        Ok(Some(config))
+    }
+
+    /// Load the global configuration file from the XDG config directory.
+    fn load_global() -> anyhow::Result<Option<Self>> {
+        if let Some(config_dir) = dirs::config_dir() {
+            let config_path = config_dir.join("workmux/config.yaml");
+            if config_path.exists() {
+                return Self::load_from_path(&config_path);
+            }
+            let config_path_yml = config_dir.join("workmux/config.yml");
+            if config_path_yml.exists() {
+                return Self::load_from_path(&config_path_yml);
+            }
+        }
+        Ok(None)
+    }
+
+    /// Load the project-specific configuration file from the current directory.
+    fn load_project() -> anyhow::Result<Option<Self>> {
+        let config_path_yaml = Path::new(".workmux.yaml");
+        if config_path_yaml.exists() {
+            return Self::load_from_path(config_path_yaml);
+        }
+        let config_path_yml = Path::new(".workmux.yml");
+        if config_path_yml.exists() {
+            return Self::load_from_path(config_path_yml);
+        }
+        Ok(None)
+    }
+
+    /// Merge a project config into a global config.
+    /// Project config takes precedence. For lists, "<global>" placeholder expands to global items.
+    fn merge(self, project: Self) -> Self {
+        // Helper to merge vectors with "<global>" placeholder expansion
+        fn merge_vec_with_placeholder(
+            global: Option<Vec<String>>,
+            project: Option<Vec<String>>,
+        ) -> Option<Vec<String>> {
+            match (global, project) {
+                (Some(global_items), Some(project_items)) => {
+                    // Check if project items contain the "<global>" placeholder
+                    let has_placeholder = project_items.iter().any(|s| s == "<global>");
+                    if has_placeholder {
+                        // Replace "<global>" with global items
+                        let mut result = Vec::new();
+                        for item in project_items {
+                            if item == "<global>" {
+                                result.extend(global_items.clone());
+                            } else {
+                                result.push(item);
+                            }
+                        }
+                        Some(result)
+                    } else {
+                        // No placeholder, project completely replaces global
+                        Some(project_items)
+                    }
+                }
+                (global, project) => project.or(global),
+            }
+        }
+
+        // Helper for PaneConfig vectors
+        fn merge_panes(
+            global: Option<Vec<PaneConfig>>,
+            project: Option<Vec<PaneConfig>>,
+        ) -> Option<Vec<PaneConfig>> {
+            // For panes, we also support "<global>" placeholder in command field
+            match (global, project) {
+                (Some(global_panes), Some(project_panes)) => {
+                    // Check if any pane has command == "<global>"
+                    let has_placeholder = project_panes.iter().any(|p| p.command == "<global>");
+                    if has_placeholder {
+                        // Replace panes with command "<global>" with all global panes
+                        let mut result = Vec::new();
+                        for pane in project_panes {
+                            if pane.command == "<global>" {
+                                result.extend(global_panes.clone());
+                            } else {
+                                result.push(pane);
+                            }
+                        }
+                        Some(result)
+                    } else {
+                        // No placeholder, project replaces global
+                        Some(project_panes)
+                    }
+                }
+                (global, project) => project.or(global),
+            }
+        }
+
+        Self {
+            // Scalar values: project wins
+            main_branch: project.main_branch.or(self.main_branch),
+            worktree_dir: project.worktree_dir.or(self.worktree_dir),
+            window_prefix: project.window_prefix.or(self.window_prefix),
+
+            // List values with placeholder support
+            panes: merge_panes(self.panes, project.panes),
+            post_create: merge_vec_with_placeholder(self.post_create, project.post_create),
+
+            // File config with placeholder support
+            files: FileConfig {
+                copy: merge_vec_with_placeholder(self.files.copy, project.files.copy),
+                symlink: merge_vec_with_placeholder(self.files.symlink, project.files.symlink),
+            },
+        }
+    }
+
+    /// Get default panes.
+    fn default_panes() -> Vec<PaneConfig> {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string());
-
-        Config {
-            main_branch: None,
-            worktree_dir: None,
-            window_prefix: None,
-            panes: vec![
-                PaneConfig {
-                    command: shell.clone(),
-                    focus: true,
-                    split: None,
-                },
-                PaneConfig {
-                    command: "clear".to_string(),
-                    focus: false,
-                    split: Some(SplitDirection::Horizontal),
-                },
-            ],
-            post_create: vec![],
-            files: FileConfig::default(),
-        }
+        vec![
+            PaneConfig {
+                command: shell,
+                focus: true,
+                split: None,
+            },
+            PaneConfig {
+                command: "clear".to_string(),
+                focus: false,
+                split: Some(SplitDirection::Horizontal),
+            },
+        ]
     }
 
-    /// Generate a default configuration for a Claude-enabled project.
-    fn claude_default() -> Self {
-        Config {
-            main_branch: None,
-            worktree_dir: None,
-            window_prefix: None,
-            panes: vec![
-                PaneConfig {
-                    command: "claude".to_string(),
-                    focus: true,
-                    split: None,
-                },
-                PaneConfig {
-                    command: "clear".to_string(),
-                    focus: false,
-                    split: Some(SplitDirection::Horizontal),
-                },
-            ],
-            post_create: vec![],
-            files: FileConfig::default(),
-        }
+    /// Get default panes for a Claude project.
+    fn claude_default_panes() -> Vec<PaneConfig> {
+        vec![
+            PaneConfig {
+                command: "claude".to_string(),
+                focus: true,
+                split: None,
+            },
+            PaneConfig {
+                command: "clear".to_string(),
+                focus: false,
+                split: Some(SplitDirection::Horizontal),
+            },
+        ]
     }
 
     /// Get the window prefix to use, defaulting to "wm-" if not configured
@@ -164,69 +262,50 @@ impl Config {
             ));
         }
 
-        let example_config = r#"# workmux configuration file
-# This file defines how workmux creates tmux windows and sets up worktrees
+        let example_config = r#"# workmux project configuration
+# Overrides global settings in ~/.config/workmux/config.yaml
 
-# The primary branch to merge into (optional, auto-detected if not set)
+# The primary branch to merge into (auto-detected if not set)
 # main_branch: main
 
-# Optional: customize where worktrees are created
-# Supports relative paths (to repo root) or absolute paths
-# Default: <project_root>/../<project_name>__worktrees
+# Custom worktree directory for this project
 # worktree_dir: .worktrees
-# worktree_dir: /path/to/custom/location
 
-# Optional: customize the tmux window name prefix
-# Default: wm-
-# window_prefix: wm-
+# Custom tmux window prefix for this project
+# window_prefix: proj-
 
-# Setup commands to run after worktree and file operations are complete.
-# These run as regular processes in your terminal (not in tmux panes).
-# You'll see progress output before switching to tmux.
-# Use this for: dependency installation, database setup, initial builds.
-# For long-running processes (dev servers, watchers), use 'panes' instead.
+# Setup commands run after worktree creation
+# Use "<global>" to inherit global hooks (e.g., mise install)
 post_create:
-  # - pnpm install
-  # - npm run db:setup
+  # - "<global>"     # Uncomment to run global hooks first
+  - pnpm install
 
-# Defines the tmux layout for a new window.
-# Panes are created in order. Commands are sent to their respective panes.
+# Tmux pane layout for this project
+# If not set, uses global panes from ~/.config/workmux/config.yaml
 panes:
-  - command: clear
+  - command: nvim .
     focus: true
-  - command: clear
+  - command: pnpm run dev
     split: horizontal
 
-# Example: Add more panes for your workflow
-# panes:
-#   - command: nvim .
-#     focus: true
-#   - command: npm run dev
-#     split: vertical
-
 # File operations
-# These run after worktree creation but before setup commands
 files:
-  # Copy files that might be modified per-worktree.
-  # Use this for files that should start the same but may diverge.
-  # copy:
-  #   - some-config.json
+  # Copy files that may differ per worktree
+  copy:
+    - .env.example
 
-  # Symlink shared configuration or documentation.
-  # Changes to the source will reflect in all worktrees.
+  # Symlink shared resources
+  # Use "<global>" to inherit global patterns
   symlink:
-    - .env
-    - CLAUDE.md
-    - .config/*
+    # - "<global>"   # Uncomment to include global symlinks
+    - node_modules
 "#;
 
         fs::write(&config_path, example_config)?;
 
         println!("✓ Created .workmux.yaml");
-        println!("\nEdit this file to customize your workmux workflow:");
-        println!("  - Add or remove panes");
-        println!("  - Change the layout");
-        println!("  - Add post-create hooks");
+        println!("\nThis file provides project-specific overrides.");
+        println!("For global settings, edit ~/.config/workmux/config.yaml");
 
         Ok(())
     }
