@@ -96,6 +96,9 @@ panes:
     split: horizontal
 post_create:
   - mise install
+files:
+  symlink:
+    - node_modules
 ```
 
 ### Project configuration example
@@ -109,7 +112,8 @@ post_create:
 
 files:
   symlink:
-    - node_modules
+    - '<global>'  # Include global symlinks (node_modules)
+    - .pnpm-store  # Add project-specific symlink
 
 panes:
   - command: claude
