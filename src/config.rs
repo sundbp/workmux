@@ -113,7 +113,7 @@ impl Config {
         let mut config = global_config.merge(project_config);
 
         // After merging, apply sensible defaults for any values that are not configured.
-        let needs_defaults = config.panes.is_none() || config.post_create.is_none();
+        let needs_defaults = config.panes.is_none();
 
         if needs_defaults {
             if let Ok(repo_root) = git::get_repo_root() {
@@ -128,10 +128,6 @@ impl Config {
                     }
                 }
 
-                // Default post_create hooks based on package manager
-                if config.post_create.is_none() && repo_root.join("pnpm-lock.yaml").exists() {
-                    config.post_create = Some(vec!["pnpm install".to_string()]);
-                }
             } else {
                 // Apply fallback defaults for when not in a git repo (e.g., `workmux init`).
                 if config.panes.is_none() {
@@ -303,19 +299,20 @@ impl Config {
 # Custom prefix for tmux window names.
 # window_prefix: wm-
 
-# Commands to run in the new worktree after it's created.
-# Default: Auto-detects pnpm (`pnpm-lock.yaml`) and runs `pnpm install`.
-# To disable this, set to an empty list: `post_create: []`
+# Commands to run in the new worktree before the tmux window is opened.
+# These hooks block window creation, so reserve them for short tasks.
+# For long-running setup (e.g., pnpm install), prefer pane `command`s instead.
+# To disable, set to an empty list: `post_create: []`
 # post_create:
   # Use "<global>" to inherit hooks from your global config.
   # - "<global>"
-  # - pnpm install
+  # - mise use
 
 # Custom tmux pane layout for this project.
 # Default: A two-pane layout with a shell and clear command
 # panes:
-#   # Run vim; when it exits, a shell will remain
-#   - command: vim .
+#   # Run a long-running command like pnpm install; a shell remains afterward
+#   - command: pnpm install
 #     focus: true
 #
 #   # Just a default shell (command is omitted)

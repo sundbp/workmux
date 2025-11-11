@@ -117,7 +117,7 @@ files:
 ```yaml
 post_create:
   - '<global>'
-  - pnpm install
+  - mise use
 
 files:
   symlink:
@@ -125,10 +125,12 @@ files:
     - .pnpm-store # Add project-specific symlink
 
 panes:
-  - command: claude
+  - command: pnpm install
     focus: true
-  - command: pnpm run dev
+  - command: claude
     split: horizontal
+  - command: pnpm run dev
+    split: vertical
 ```
 
 ### Configuration options
@@ -139,12 +141,14 @@ panes:
   root)
 - `window_prefix`: Prefix for tmux window names (default: `wm-`)
 - `panes`: Array of pane configurations
-  - `command`: Optional command to run when the pane is created. If omitted,
-    the pane starts with your default shell.
+  - `command`: Optional command to run when the pane is created. Use this for
+    long-running setup like dependency installs so output is visible in tmux.
+    If omitted, the pane starts with your default shell.
   - `focus`: Whether this pane should receive focus (default: false)
   - `split`: How to split from previous pane (`horizontal` or `vertical`)
-- `post_create`: Commands to run after worktree creation (in the new worktree
-  directory)
+- `post_create`: Commands to run after worktree creation but before the tmux
+  window opens. These block window creation, so keep them short (e.g., copying
+  config files).
 - `files`: File operations to perform on worktree creation
   - `copy`: List of glob patterns for files to copy
   - `symlink`: List of glob patterns for files/directories to symlink
@@ -157,11 +161,7 @@ panes:
   - For projects with a `CLAUDE.md` file: Opens `claude` in the first pane
   - For all other projects: Opens your default shell
   - Both configurations include a second pane split horizontally
-- If no `post_create` configuration is defined, workmux automatically detects
-  your package manager and runs the appropriate install command:
-  - For pnpm projects (detects `pnpm-lock.yaml`): Runs `pnpm install`
-  - To disable: Set `post_create: []` in your config
-  - To override: Define custom `post_create` commands
+- `post_create` commands are optional and only run if you configure them
 
 ### Shell alias (recommended)
 
@@ -196,8 +196,8 @@ immediately. If the branch doesn't exist, it will be created automatically.
    `<project_root>/../<project_name>__worktrees/<branch-name>`
 2. Creates a new tmux window named after the branch
 3. Runs any configured file operations (copy/symlink)
-4. Executes `post_create` commands if defined in config, or automatically runs
-   `pnpm install` for pnpm projects (when `pnpm-lock.yaml` is detected)
+4. Executes `post_create` commands if defined (runs before the tmux window opens, so keep
+   them fast)
 5. Sets up your configured tmux pane layout
 6. Automatically switches your tmux client to the new window
 
@@ -366,7 +366,7 @@ closed the tmux window for a worktree you are still working on.
 
 **Common options:**
 
-- `--run-hooks`: Re-runs the `post_create` commands (e.g., `pnpm install`).
+- `--run-hooks`: Re-runs the `post_create` commands (these block window creation).
 - `--force-files`: Re-applies file copy/symlink operations. Useful for restoring
   a deleted `.env` file.
 

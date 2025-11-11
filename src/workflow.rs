@@ -259,15 +259,6 @@ fn setup_environment(
         && let Some(post_create) = &config.post_create
         && !post_create.is_empty()
     {
-        // Print detection message for pnpm projects
-        if repo_root.join("pnpm-lock.yaml").exists()
-            && post_create
-                .iter()
-                .any(|cmd| cmd.starts_with("pnpm install"))
-        {
-            println!("  Detected pnpm project, installing dependencies...");
-        }
-
         hooks_run = post_create.len();
         for (idx, command) in post_create.iter().enumerate() {
             info!(branch = branch_name, step = idx + 1, total = hooks_run, command = %command, "setup_environment:hook start");
