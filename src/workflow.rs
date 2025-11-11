@@ -13,6 +13,7 @@ pub struct CreateResult {
     pub worktree_path: PathBuf,
     pub branch_name: String,
     pub post_create_hooks_run: usize,
+    pub base_branch: Option<String>,
 }
 
 /// Result of merging a worktree
@@ -158,7 +159,8 @@ pub fn create(
         run_hooks: true,
         force_files: true,
     };
-    let result = setup_environment(branch_name, &worktree_path, config, &options)?;
+    let mut result = setup_environment(branch_name, &worktree_path, config, &options)?;
+    result.base_branch = base_branch_for_creation.clone();
     info!(
         branch = branch_name,
         path = %result.worktree_path.display(),
@@ -302,6 +304,7 @@ fn setup_environment(
         worktree_path: worktree_path.to_path_buf(),
         branch_name: branch_name.to_string(),
         post_create_hooks_run: hooks_run,
+        base_branch: None,
     })
 }
 

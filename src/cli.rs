@@ -236,10 +236,13 @@ fn create_worktree(branch_name: &str, base_branch: Option<&str>) -> Result<()> {
     }
 
     println!(
-        "✓ Successfully created worktree and tmux window for '{}'\n  Worktree: {}",
-        result.branch_name,
-        result.worktree_path.display()
+        "✓ Successfully created worktree and tmux window for '{}'",
+        result.branch_name
     );
+    if let Some(ref base) = result.base_branch {
+        println!("  Base: {}", base);
+    }
+    println!("  Worktree: {}", result.worktree_path.display());
 
     Ok(())
 }
