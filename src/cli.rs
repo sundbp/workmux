@@ -273,13 +273,35 @@ fn merge_worktree(
 ) -> Result<()> {
     let config = config::Config::load()?;
 
+    // Determine the branch to merge (must be done BEFORE changing CWD if running without branch name)
+    let branch_to_merge = if let Some(name) = branch_name {
+        name.to_string()
+    } else {
+        // Running from within a worktree - get current branch
+        git::get_current_branch().context("Failed to get current branch")?
+    };
+
+    // Change CWD to main worktree to prevent errors if the command is run from within
+    // the worktree that is about to be deleted. This must happen after getting current
+    // branch name but before any other git operations.
+    if git::is_git_repo()? {
+        let main_worktree_root = git::get_main_worktree_root()
+            .context("Could not find main worktree for merge operation")?;
+        std::env::set_current_dir(&main_worktree_root).with_context(|| {
+            format!(
+                "Could not change directory to '{}'",
+                main_worktree_root.display()
+            )
+        })?;
+    }
+
     // Print status if there are pre-delete hooks
     if config.pre_delete.as_ref().is_some_and(|v| !v.is_empty()) {
         println!("Running pre-delete commands...");
     }
 
     let result = workflow::merge(
-        branch_name,
+        Some(&branch_to_merge),
         ignore_uncommitted,
         delete_remote,
         rebase,
@@ -307,7 +329,7 @@ fn merge_worktree(
 }
 
 fn remove_worktree(branch_name: Option<&str>, mut force: bool, delete_remote: bool) -> Result<()> {
-    // Determine the branch to remove
+    // Determine the branch to remove (must be done BEFORE changing CWD)
     let branch_to_remove = if let Some(name) = branch_name {
         name.to_string()
     } else {
@@ -315,11 +337,26 @@ fn remove_worktree(branch_name: Option<&str>, mut force: bool, delete_remote: bo
         git::get_current_branch().context("Failed to get current branch")?
     };
 
+    // Change CWD to main worktree to prevent errors if the command is run from within
+    // the worktree that is about to be deleted. This must happen after getting current
+    // branch name but before any other git operations.
+    if git::is_git_repo()? {
+        let main_worktree_root = git::get_main_worktree_root()
+            .context("Could not find main worktree for remove operation")?;
+        std::env::set_current_dir(&main_worktree_root).with_context(|| {
+            format!(
+                "Could not change directory to '{}'",
+                main_worktree_root.display()
+            )
+        })?;
+    }
+
     // Handle user confirmation prompt if needed (before calling workflow)
     if !force {
         // First check for uncommitted changes (must be checked before unmerged prompt)
         // to avoid prompting user about unmerged commits only to error on uncommitted changes
         if let Ok(worktree_path) = git::get_worktree_path(&branch_to_remove)
+            && worktree_path.exists()
             && git::has_uncommitted_changes(&worktree_path)?
         {
             return Err(anyhow!(

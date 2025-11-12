@@ -451,6 +451,18 @@ pub fn merge(
         return Err(anyhow!("Not in a git repository"));
     }
 
+    // Change CWD to main worktree to prevent errors if the command is run from within
+    // the worktree that is about to be deleted.
+    let main_worktree_root = git::get_main_worktree_root()
+        .context("Could not find main worktree to run merge operations")?;
+    debug!(safe_cwd = %main_worktree_root.display(), "merge:changing to main worktree");
+    std::env::set_current_dir(&main_worktree_root).with_context(|| {
+        format!(
+            "Could not change directory to '{}'",
+            main_worktree_root.display()
+        )
+    })?;
+
     // Determine the branch to merge
     let branch_to_merge = if let Some(name) = branch_name {
         name.to_string()
@@ -594,35 +606,46 @@ pub fn remove(
         return Err(anyhow!("Not in a git repository"));
     }
 
+    // Change CWD to main worktree to prevent errors if the command is run from within
+    // the worktree that is about to be deleted.
+    let main_worktree_root = git::get_main_worktree_root()
+        .context("Could not find main worktree to run remove operations")?;
+    debug!(safe_cwd = %main_worktree_root.display(), "remove:changing to main worktree");
+    std::env::set_current_dir(&main_worktree_root).with_context(|| {
+        format!(
+            "Could not change directory to '{}'",
+            main_worktree_root.display()
+        )
+    })?;
+
     // Get worktree path - this also validates that the worktree exists
     let worktree_path = git::get_worktree_path(branch_name)
         .with_context(|| format!("No worktree found for branch '{}'", branch_name))?;
     debug!(branch = branch_name, path = %worktree_path.display(), "remove:worktree resolved");
 
     // Safety Check: Prevent deleting the main worktree itself, regardless of branch.
-    let main_worktree_path = git::get_main_worktree_root()
-        .context("Failed to locate the main worktree for safety check")?;
+    let is_main_worktree = match (
+        worktree_path.canonicalize(),
+        main_worktree_root.canonicalize(),
+    ) {
+        (Ok(canon_wt_path), Ok(canon_main_path)) => {
+            // Best case: both paths exist and can be resolved. This is the most reliable check.
+            canon_wt_path == canon_main_path
+        }
+        _ => {
+            // Fallback: If canonicalization fails on either path (e.g., directory was
+            // manually removed, broken symlink), compare the raw paths provided by git.
+            // This is a critical safety net.
+            worktree_path == main_worktree_root
+        }
+    };
 
-    // Canonicalize paths for robust comparison (handles symlinks, trailing slashes, etc.)
-    let canonical_main_path = main_worktree_path.canonicalize().with_context(|| {
-        format!(
-            "Failed to canonicalize main worktree path: {}",
-            main_worktree_path.display()
-        )
-    })?;
-    let canonical_worktree_path = worktree_path.canonicalize().with_context(|| {
-        format!(
-            "Failed to canonicalize worktree path: {}",
-            worktree_path.display()
-        )
-    })?;
-
-    if canonical_worktree_path == canonical_main_path {
+    if is_main_worktree {
         return Err(anyhow!(
             "Cannot remove branch '{}' because it is checked out in the main worktree at '{}'. \
             Switch the main worktree to a different branch first, or create a linked worktree for '{}'.",
             branch_name,
-            main_worktree_path.display(),
+            main_worktree_root.display(),
             branch_name
         ));
     }
@@ -634,7 +657,7 @@ pub fn remove(
         return Err(anyhow!("Cannot delete the main branch ('{}')", main_branch));
     }
 
-    if git::has_uncommitted_changes(&worktree_path)? && !force {
+    if worktree_path.exists() && git::has_uncommitted_changes(&worktree_path)? && !force {
         return Err(anyhow!(
             "Worktree has uncommitted changes. Use --force to delete anyway."
         ));
@@ -681,20 +704,18 @@ pub fn cleanup(
         delete_remote,
         "cleanup:start"
     );
-    // Change the CWD to a safe location (parent of main worktree) before any destructive
-    // operations. This prevents "Unable to read current working directory" errors
-    // when the command is run from within the worktree being deleted.
+    // Change the CWD to main worktree before any destructive operations.
+    // This prevents "Unable to read current working directory" errors when the command
+    // is run from within the worktree being deleted.
     let main_worktree_root = git::get_main_worktree_root()
         .context("Could not find main worktree to run cleanup operations")?;
-    let safe_cwd = main_worktree_root.parent().ok_or_else(|| {
-        anyhow!(
-            "Could not determine parent directory of main worktree '{}'",
+    debug!(safe_cwd = %main_worktree_root.display(), "cleanup:changing to main worktree");
+    std::env::set_current_dir(&main_worktree_root).with_context(|| {
+        format!(
+            "Could not change directory to '{}'",
             main_worktree_root.display()
         )
     })?;
-    debug!(safe_cwd = %safe_cwd.display(), "cleanup:changing to safe CWD");
-    std::env::set_current_dir(safe_cwd)
-        .with_context(|| format!("Could not change directory to '{}'", safe_cwd.display()))?;
 
     let tmux_running = tmux::is_running().unwrap_or(false);
     let running_inside_target_window = if tmux_running {
