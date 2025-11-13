@@ -105,6 +105,10 @@ enum Commands {
         /// Base branch/commit/tag to branch from
         #[arg(long)]
         base: Option<String>,
+
+        /// Use the current branch as the base (shorthand for --base <current-branch>)
+        #[arg(short = 'c', long = "from-current", conflicts_with = "base")]
+        from_current: bool,
     },
 
     /// Open a tmux window for an existing worktree
@@ -181,7 +185,21 @@ pub fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Add { branch_name, base } => create_worktree(&branch_name, base.as_deref()),
+        Commands::Add {
+            branch_name,
+            base,
+            from_current,
+        } => {
+            let resolved_base = if from_current {
+                Some(
+                    git::get_current_branch()
+                        .context("Failed to determine the current branch for --from-current")?,
+                )
+            } else {
+                base
+            };
+            create_worktree(&branch_name, resolved_base.as_deref())
+        }
         Commands::Open {
             branch_name,
             run_hooks,

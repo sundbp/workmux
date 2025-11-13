@@ -224,6 +224,9 @@ immediately. If the branch doesn't exist, it will be created automatically.
 - `--base <branch|commit|tag>`: Specify a base branch, commit, or tag to branch from
   when creating a new branch. By default, new branches are created from your main
   branch's remote tracking branch (e.g., `origin/main`).
+- `-c, --from-current`: Use your currently checked out branch as the base. This is a
+  shorthand for passing that branch explicitly via `--base` and is helpful when
+  stacking feature branches.
 
 **What happens:**
 
@@ -250,6 +253,9 @@ workmux add feature/new-api
 
 # Create a new branch from a specific base
 workmux add hotfix --base production
+
+# Use the current branch as the base (stacked branch)
+workmux add feature-2 --from-current
 ```
 
 ---

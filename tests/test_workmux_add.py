@@ -437,6 +437,41 @@ def test_add_from_specific_branch(
     assert window_name in existing_windows
 
 
+def test_add_from_current_branch_flag(
+    isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
+):
+    """`workmux add --from-current` should base new branches on the active branch."""
+    env = isolated_tmux_server
+    base_branch = "feature-stack-base"
+    stacked_branch = "feature-stack-child"
+    commit_message = "Stack base change"
+
+    write_workmux_config(repo_path)
+
+    # Start a new branch and add a commit that the stacked branch should inherit.
+    env.run_command(["git", "checkout", "-b", base_branch], cwd=repo_path)
+    create_commit(env, repo_path, commit_message)
+
+    run_workmux_command(
+        env,
+        workmux_exe_path,
+        repo_path,
+        f"add {stacked_branch} --from-current",
+    )
+
+    stacked_worktree = get_worktree_path(repo_path, stacked_branch)
+    expected_file = (
+        stacked_worktree
+        / f"file_for_{commit_message.replace(' ', '_').replace(':', '')}.txt"
+    )
+    assert expected_file.exists()
+
+    window_name = get_window_name(stacked_branch)
+    list_windows_result = env.tmux(["list-windows", "-F", "#{window_name}"])
+    existing_windows = list_windows_result.stdout.strip().split("\n")
+    assert window_name in existing_windows
+
+
 def test_add_reuses_existing_branch(
     isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
 ):
