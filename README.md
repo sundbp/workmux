@@ -217,7 +217,10 @@ alias wm='workmux'
 Creates a new git worktree with a matching tmux window and switches you to it
 immediately. If the branch doesn't exist, it will be created automatically.
 
-- `<branch-name>`: Name of the branch to create or switch to.
+- `<branch-name>`: Name of the branch to create or switch to, or a remote branch
+  reference (e.g., `origin/feature-branch`). When you provide a remote reference,
+  workmux automatically fetches it and creates a local branch with the name derived
+  from the remote branch (e.g., `origin/feature/foo` creates local branch `feature/foo`).
 
 **Common options:**
 
@@ -227,10 +230,6 @@ immediately. If the branch doesn't exist, it will be created automatically.
 - `-c, --from-current`: Use your currently checked out branch as the base. This is a
   shorthand for passing that branch explicitly via `--base` and is helpful when
   stacking feature branches.
-- `--remote <remote/branch>`: Fetch and create a worktree from an existing remote
-  branch (e.g., `origin/feature/foo`). When you omit `<branch-name>`, workmux
-  automatically names the local branch after the remote branch. Provide a
-  `<branch-name>` if you want a different local name.
 
 **What happens:**
 
@@ -261,11 +260,11 @@ workmux add hotfix --base production
 # Use the current branch as the base (stacked branch)
 workmux add feature-2 --from-current
 
-# Fetch a remote PR branch into a local worktree
-workmux add --remote origin/user-auth-pr
+# Create a worktree from a remote branch (creates local branch "user-auth-pr")
+workmux add origin/user-auth-pr
 
-# Fetch a remote branch but keep a custom local name
-workmux add user-auth-testing --remote origin/user-auth-pr
+# Remote branches with slashes work too (creates local branch "feature/foo")
+workmux add origin/feature/foo
 ```
 
 ---
