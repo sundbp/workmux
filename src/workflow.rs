@@ -178,16 +178,19 @@ pub fn create(
             // Use the explicitly provided base branch/commit/tag
             Some(base.to_string())
         } else {
-            // Auto-detect the base branch using the main branch
-            let main_branch = config
-                .main_branch
-                .as_ref()
-                .map(|s| Ok(s.clone()))
-                .unwrap_or_else(git::get_default_branch)
-                .context("Failed to determine the main branch. Specify it in .workmux.yaml")?;
+            // Default to the current branch when no explicit base was provided
+            let current_branch = git::get_current_branch()
+                .context("Failed to determine the current branch to use as the base")?;
+            let current_branch = current_branch.trim().to_string();
 
-            let base = git::get_merge_base(&main_branch)?;
-            Some(base)
+            if current_branch.is_empty() {
+                return Err(anyhow!(
+                    "Cannot determine current branch (detached HEAD). \
+                     Use --base to explicitly specify the starting point."
+                ));
+            }
+
+            Some(current_branch)
         }
     } else {
         None

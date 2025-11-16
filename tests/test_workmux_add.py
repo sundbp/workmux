@@ -747,6 +747,35 @@ def test_add_from_specific_branch(
     assert window_name in existing_windows
 
 
+def test_add_defaults_to_current_branch(
+    isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
+):
+    """`workmux add` without --base should inherit from the current branch."""
+    env = isolated_tmux_server
+    base_branch = "feature-default-base"
+    stacked_branch = "feature-default-child"
+    commit_message = "Stack default change"
+
+    write_workmux_config(repo_path)
+
+    env.run_command(["git", "checkout", "-b", base_branch], cwd=repo_path)
+    create_commit(env, repo_path, commit_message)
+
+    run_workmux_add(env, workmux_exe_path, repo_path, stacked_branch)
+
+    stacked_worktree = get_worktree_path(repo_path, stacked_branch)
+    expected_file = (
+        stacked_worktree
+        / f"file_for_{commit_message.replace(' ', '_').replace(':', '')}.txt"
+    )
+    assert expected_file.exists()
+
+    window_name = get_window_name(stacked_branch)
+    list_windows_result = env.tmux(["list-windows", "-F", "#{window_name}"])
+    existing_windows = list_windows_result.stdout.strip().split("\n")
+    assert window_name in existing_windows
+
+
 def test_add_from_current_branch_flag(
     isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
 ):
@@ -781,6 +810,54 @@ def test_add_from_current_branch_flag(
     existing_windows = list_windows_result.stdout.strip().split("\n")
     assert window_name in existing_windows
 
+
+def test_add_errors_when_detached_head_without_base(
+    isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
+):
+    """Detached HEAD states should require --base."""
+    env = isolated_tmux_server
+    branch_name = "feature-detached-head"
+
+    write_workmux_config(repo_path)
+
+    head_sha = (
+        env.run_command(["git", "rev-parse", "HEAD"], cwd=repo_path).stdout.strip()
+    )
+    env.run_command(["git", "checkout", head_sha], cwd=repo_path)
+
+    result = run_workmux_command(
+        env, workmux_exe_path, repo_path, f"add {branch_name}", expect_fail=True
+    )
+
+    assert "detached HEAD" in result.stderr
+
+
+def test_add_allows_detached_head_with_explicit_base(
+    isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path
+):
+    """Detached HEAD states can still create worktrees when --base is provided."""
+    env = isolated_tmux_server
+    branch_name = "feature-detached-head-base"
+    commit_message = "Detached baseline"
+
+    write_workmux_config(repo_path)
+    create_commit(env, repo_path, commit_message)
+
+    head_sha = (
+        env.run_command(["git", "rev-parse", "HEAD"], cwd=repo_path).stdout.strip()
+    )
+    env.run_command(["git", "checkout", head_sha], cwd=repo_path)
+
+    run_workmux_command(
+        env, workmux_exe_path, repo_path, f"add {branch_name} --base main"
+    )
+
+    worktree_path = get_worktree_path(repo_path, branch_name)
+    expected_file = (
+        worktree_path
+        / f"file_for_{commit_message.replace(' ', '_').replace(':', '')}.txt"
+    )
+    assert expected_file.exists()
 
 def test_add_reuses_existing_branch(
     isolated_tmux_server: TmuxEnvironment, workmux_exe_path: Path, repo_path: Path

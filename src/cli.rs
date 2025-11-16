@@ -114,11 +114,11 @@ enum Commands {
         /// Name of the branch (creates if it doesn't exist) or remote ref (e.g., origin/feature)
         branch_name: String,
 
-        /// Base branch/commit/tag to branch from
+        /// Base branch/commit/tag to branch from (defaults to current branch)
         #[arg(long)]
         base: Option<String>,
 
-        /// Use the current branch as the base (shorthand for --base <current-branch>)
+        /// Explicitly use the current branch as the base (shorthand for --base <current-branch>)
         #[arg(short = 'c', long = "from-current", conflicts_with = "base")]
         from_current: bool,
 
