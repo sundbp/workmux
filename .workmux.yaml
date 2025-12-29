@@ -8,3 +8,5 @@ files:
   symlink:
     - CLAUDE.md
     - tests/venv # Share Python venv for faster worktree creation
+
+pre_merge: just check
