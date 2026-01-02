@@ -11,3 +11,4 @@ files:
 
 pre_merge:
   - just check
+  - just test
