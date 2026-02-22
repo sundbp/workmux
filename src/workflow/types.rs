@@ -47,7 +47,8 @@ pub struct DeferredCleanup {
     pub handle: String,
     pub keep_branch: bool,
     pub force: bool,
-    pub git_common_dir: PathBuf,
+    /// Pre-computed VCS-specific cleanup commands (prune, branch delete, config remove).
+    pub vcs_cleanup_commands: Vec<String>,
 }
 
 /// Result of cleanup operations

@@ -1,6 +1,6 @@
 use crate::multiplexer::handle::mode_label;
 use crate::multiplexer::{MuxHandle, create_backend, detect_backend};
-use crate::{config, git, sandbox};
+use crate::{config, sandbox, vcs};
 use anyhow::{Context, Result, anyhow};
 
 pub fn run(name: Option<&str>) -> Result<()> {
@@ -15,14 +15,15 @@ pub fn run(name: Option<&str>) -> Result<()> {
     };
 
     // Determine if this worktree was created as a session or window
-    let mode = git::get_worktree_mode(&resolved_handle);
+    let vcs = vcs::detect_vcs()?;
+    let mode = vcs.get_workspace_mode(&resolved_handle);
 
     // When no name is provided, prefer the current window/session name
     // This handles duplicate windows/sessions (e.g., wm:feature-2) correctly
     let (full_target_name, is_current_target) = match name {
         Some(handle) => {
             // Explicit name provided - validate the worktree exists
-            git::find_worktree(handle).with_context(|| {
+            vcs.find_workspace(handle).with_context(|| {
                 format!(
                     "No worktree found with name '{}'. Use 'workmux list' to see available worktrees.",
                     handle
