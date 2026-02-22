@@ -4,7 +4,7 @@ description: A workflow tool for managing git worktrees and tmux windows as isol
 
 # What is workmux?
 
-workmux is a giga opinionated zero-friction workflow tool for managing [git worktrees](https://git-scm.com/docs/git-worktree) and tmux windows as isolated development environments. Also supports [kitty](/guide/kitty) and [WezTerm](/guide/wezterm) (experimental). Perfect for running multiple AI agents in parallel without conflict.
+workmux is a giga opinionated zero-friction workflow tool for managing [git worktrees](https://git-scm.com/docs/git-worktree) (or [jj workspaces](https://jj-vcs.github.io/jj/latest/working-copy/#workspaces)) and tmux windows as isolated development environments. Also supports [kitty](/guide/kitty) and [WezTerm](/guide/wezterm) (experimental). Perfect for running multiple AI agents in parallel without conflict.
 
 ::: tip New to workmux?
 Read the [introduction blog post](https://raine.dev/blog/introduction-to-workmux/) for a quick overview.
@@ -120,7 +120,7 @@ state, editor session, dev server, and AI agent. Context switching is switching 
 
 ## Features
 
-- Create git worktrees with matching tmux windows (or kitty/WezTerm tabs) in a single command (`add`)
+- Create worktrees (git) or workspaces (jj) with matching tmux windows (or kitty/WezTerm tabs) in a single command (`add`)
 - Merge branches and clean up everything (worktree, tmux window, branches) in one command (`merge`)
 - [Dashboard](/guide/dashboard/) for monitoring agents, reviewing changes, and sending commands
 - [Delegate tasks to worktree agents](/guide/skills#-worktree) with a `/worktree` skill
@@ -184,9 +184,11 @@ workmux merge
 
 In a standard Git setup, switching branches disrupts your flow by requiring a clean working tree. Worktrees remove this friction. `workmux` automates the entire process and pairs each worktree with a dedicated tmux window, creating fully isolated development environments.
 
+**Using jj?** workmux also supports [jj (Jujutsu)](https://jj-vcs.github.io/jj/) natively. jj workspaces provide the same parallel development benefits. workmux auto-detects your VCS backend.
+
 ## Requirements
 
-- Git 2.5+ (for worktree support)
+- Git 2.5+ (for worktree support) or [jj](https://jj-vcs.github.io/jj/) (Jujutsu)
 - tmux (or [WezTerm](/guide/wezterm) or [kitty](/guide/kitty))
 
 ## Inspiration and related tools
